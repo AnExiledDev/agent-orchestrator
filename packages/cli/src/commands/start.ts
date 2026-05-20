@@ -10,7 +10,7 @@
  */
 
 import { type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, basename, dirname } from "node:path";
 import { cwd } from "node:process";
 import chalk from "chalk";
@@ -149,19 +149,24 @@ function persistFirstRunGlobalDefaults(params: {
   agent: string;
   workspace: string;
   notifiers: string[];
+  preserveExistingNotifiers: boolean;
 }): void {
   const globalConfigPath = getGlobalConfigPath();
-  const existing = loadGlobalConfig(globalConfigPath) ?? createDefaultGlobalConfig();
+  const existing = loadGlobalConfig(globalConfigPath);
+  const baseConfig = existing ?? createDefaultGlobalConfig();
   saveGlobalConfig(
     {
-      ...existing,
+      ...baseConfig,
       port: params.port,
       defaults: {
-        ...existing.defaults,
+        ...baseConfig.defaults,
         runtime: params.runtime,
         agent: params.agent,
         workspace: params.workspace,
-        notifiers: [...params.notifiers],
+        notifiers:
+          params.preserveExistingNotifiers && existing
+            ? [...baseConfig.defaults.notifiers]
+            : [...params.notifiers],
       },
     },
     globalConfigPath,
@@ -602,6 +607,7 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
   const runtime = getDefaultRuntime();
   const workspace = "worktree";
   const notifiers: string[] = [];
+  const preserveExistingGlobalNotifiers = existsSync(getGlobalConfigPath());
   const localConfig: LocalProjectConfig = {
     runtime,
     agent,
@@ -615,11 +621,11 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
     console.log(chalk.dim("  Use 'ao start' to start with the existing config.\n"));
     return loadConfig(outputPath);
   }
-  writeProjectBehaviorConfig(path, localConfig);
-
-  console.log(chalk.green(`✓ Config created: ${outputPath}\n`));
 
   try {
+    writeProjectBehaviorConfig(path, localConfig);
+    console.log(chalk.green(`✓ Config created: ${outputPath}\n`));
+
     const sessionPrefix = generateSessionPrefix(projectId);
     const registeredProjectId = registerProjectInGlobalConfig(projectId, projectId, path, {
       ...(repo ? { repo } : {}),
@@ -632,13 +638,21 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
       agent,
       workspace,
       notifiers,
+      preserveExistingNotifiers: preserveExistingGlobalNotifiers,
     });
     console.log(chalk.green(`✓ Registered "${registeredProjectId}" in global config\n`));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.log(chalk.yellow("⚠ Could not register project in global config."));
+    if (existsSync(outputPath)) {
+      try {
+        unlinkSync(outputPath);
+      } catch {
+        // Best-effort cleanup only: preserve the original setup error below.
+      }
+    }
+    console.log(chalk.yellow("⚠ Could not complete first-run config setup."));
     console.log(chalk.dim(`  ${message}\n`));
-    throw new Error(`Could not complete first-run global config registration: ${message}`, {
+    throw new Error(`Could not complete first-run config setup: ${message}`, {
       cause: err,
     });
   }

@@ -2379,7 +2379,7 @@ describe("start command — autoCreateConfig", () => {
     expect(globalConfig.defaults?.notifiers).toEqual([]);
   });
 
-  it("persists Codex first-run selection in global defaults and returns the global project id", async () => {
+  it("persists Codex first-run selection without erasing existing global notifiers", async () => {
     createFakeRepo(tmpDir, "https://github.com/ComposioHQ/agent-orchestrator.git");
 
     const { detectEnvironment } = await import("../../src/lib/detect-env.js");
@@ -2459,7 +2459,7 @@ describe("start command — autoCreateConfig", () => {
       runtime: getDefaultRuntime(),
       agent: "codex",
       workspace: "worktree",
-      notifiers: [],
+      notifiers: ["desktop"],
     });
 
     const entries = Object.entries(globalConfig.projects ?? {});
@@ -2474,6 +2474,71 @@ describe("start command — autoCreateConfig", () => {
     expect(Object.keys(config.projects)).toEqual([projectId]);
     expect(config.defaults.agent).toBe("codex");
     expect(config.projects[projectId].agent).toBe("codex");
+  });
+
+  it("removes the generated local config if global registration fails", async () => {
+    createFakeRepo(tmpDir, "https://github.com/ComposioHQ/agent-orchestrator.git");
+
+    const { detectEnvironment } = await import("../../src/lib/detect-env.js");
+    vi.mocked(detectEnvironment).mockResolvedValue({
+      isGitRepo: true,
+      gitRemote: "https://github.com/ComposioHQ/agent-orchestrator.git",
+      ownerRepo: "ComposioHQ/agent-orchestrator",
+      currentBranch: "main",
+      defaultBranch: "main",
+      hasTmux: true,
+      hasGh: true,
+      ghAuthed: true,
+      hasLinearKey: false,
+      hasSlackWebhook: false,
+    });
+
+    const { detectProjectType } = await import("../../src/lib/project-detection.js");
+    vi.mocked(detectProjectType).mockReturnValue({ languages: [], frameworks: [], tools: [] });
+
+    const { detectAvailableAgents, detectAgentRuntime } =
+      await import("../../src/lib/detect-agent.js");
+    vi.mocked(detectAvailableAgents).mockResolvedValue([]);
+    vi.mocked(detectAgentRuntime).mockResolvedValue("codex");
+
+    const { findFreePort } = await import("../../src/lib/web-dir.js");
+    vi.mocked(findFreePort).mockResolvedValue(3000);
+
+    mockProcessCwd.mockReturnValue(tmpDir);
+    mockIsHumanCaller.mockReturnValue(false);
+
+    const { getDefaultRuntime } = await import("@aoagents/ao-core");
+    const globalConfigPath = process.env["AO_GLOBAL_CONFIG"];
+    if (!globalConfigPath) throw new Error("AO_GLOBAL_CONFIG should be set in test setup");
+    writeFileSync(
+      globalConfigPath,
+      stringifyYaml(
+        {
+          defaults: {
+            runtime: getDefaultRuntime(),
+            agent: "claude-code",
+            workspace: "worktree",
+            notifiers: ["desktop"],
+          },
+          projects: {
+            existing: {
+              projectId: "existing",
+              path: realpathSync(tmpDir),
+              defaultBranch: "main",
+              displayName: "Existing",
+              sessionPrefix: "existing",
+            },
+          },
+        },
+        { indent: 2 },
+      ),
+    );
+
+    await expect(autoCreateConfig(tmpDir)).rejects.toThrow(
+      "Could not complete first-run config setup",
+    );
+
+    expect(existsSync(join(tmpDir, "agent-orchestrator.yaml"))).toBe(false);
   });
 });
 
