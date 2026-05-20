@@ -598,16 +598,20 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
   const agent = await detectAgentRuntime(detectedAgents);
   console.log(chalk.green(`  ✓ Agent runtime: ${agent}`));
 
-  const port = await findFreePort(DEFAULT_PORT);
-  const dashboardPort = port ?? DEFAULT_PORT;
-  if (port !== null && port !== DEFAULT_PORT) {
-    console.log(chalk.yellow(`  ⚠ Port ${DEFAULT_PORT} is busy — using ${port} instead.`));
+  const existingGlobalConfig = loadGlobalConfig(getGlobalConfigPath());
+  const requestedDashboardPort = existingGlobalConfig?.port ?? DEFAULT_PORT;
+  const port = await findFreePort(requestedDashboardPort);
+  const dashboardPort = port ?? requestedDashboardPort;
+  if (port !== null && port !== requestedDashboardPort) {
+    console.log(
+      chalk.yellow(`  ⚠ Port ${requestedDashboardPort} is busy — using ${port} instead.`),
+    );
   }
 
   const runtime = getDefaultRuntime();
   const workspace = "worktree";
   const notifiers: string[] = [];
-  const preserveExistingGlobalNotifiers = existsSync(getGlobalConfigPath());
+  const preserveExistingGlobalNotifiers = existingGlobalConfig !== null;
   const localConfig: LocalProjectConfig = {
     runtime,
     agent,
@@ -622,12 +626,13 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
     return loadConfig(outputPath);
   }
 
+  let registeredProjectId: string | null = null;
   try {
     writeProjectBehaviorConfig(path, localConfig);
     console.log(chalk.green(`✓ Config created: ${outputPath}\n`));
 
     const sessionPrefix = generateSessionPrefix(projectId);
-    const registeredProjectId = registerProjectInGlobalConfig(projectId, projectId, path, {
+    registeredProjectId = registerProjectInGlobalConfig(projectId, projectId, path, {
       ...(repo ? { repo } : {}),
       defaultBranch,
       sessionPrefix,
@@ -643,7 +648,7 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
     console.log(chalk.green(`✓ Registered "${registeredProjectId}" in global config\n`));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (existsSync(outputPath)) {
+    if (!registeredProjectId && existsSync(outputPath)) {
       try {
         unlinkSync(outputPath);
       } catch {
