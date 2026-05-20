@@ -2322,7 +2322,7 @@ describe("start command — platform-aware runtime fallback", () => {
 // ---------------------------------------------------------------------------
 
 describe("start command — autoCreateConfig", () => {
-  it("generates config with empty notifiers array (no desktop notifier added by default)", async () => {
+  it("generates config with dashboard all-priority and desktop urgent-only notifier defaults", async () => {
     const { detectEnvironment } = await import("../../src/lib/detect-env.js");
     vi.mocked(detectEnvironment).mockResolvedValue({
       isGitRepo: true,
@@ -2365,11 +2365,29 @@ describe("start command — autoCreateConfig", () => {
     const parsed = parseYaml(content) as {
       $schema?: string;
       defaults?: { notifiers?: unknown[] };
+      notifiers?: Record<
+        string,
+        { plugin?: string; backend?: string; dashboardUrl?: string; limit?: number }
+      >;
+      notificationRouting?: Record<string, string[]>;
     };
     expect(parsed["$schema"]).toBe(
       "https://raw.githubusercontent.com/ComposioHQ/agent-orchestrator/main/schema/config.schema.json",
     );
     expect(parsed.defaults?.notifiers).toEqual([]);
+    expect(parsed.notifiers?.["dashboard"]).toEqual({ plugin: "dashboard", limit: 50 });
+    expect(parsed.notifiers?.["desktop"]).toMatchObject({
+      plugin: "desktop",
+      backend: "ao-app",
+      dashboardUrl: "http://localhost:3000",
+    });
+    expect(parsed.notificationRouting).toEqual({
+      urgent: ["desktop", "dashboard"],
+      action: ["dashboard"],
+      warning: ["dashboard"],
+      info: ["dashboard"],
+    });
+    expect(content).not.toContain("composio");
   });
 });
 

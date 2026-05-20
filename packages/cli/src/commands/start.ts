@@ -109,6 +109,11 @@ import { installShutdownHandlers, isShutdownInProgress } from "../lib/shutdown.j
 import { resolveOrCreateProject } from "../lib/resolve-project.js";
 import { pathsEqual } from "../lib/path-equality.js";
 import { maybePromptForUpdateChannel } from "../lib/update-channel-onboarding.js";
+import {
+  createStartupNotifierConfig,
+  ensureStartupNotifierDefaults,
+} from "../lib/startup-notifier-defaults.js";
+import { installAoNotifierAppForStartup } from "../lib/desktop-setup.js";
 
 import { DEFAULT_PORT } from "../lib/constants.js";
 import { projectSessionUrl } from "../lib/routes.js";
@@ -126,6 +131,54 @@ class CliFailureEventRecordedError extends Error {
 
 function isCliFailureEventRecordedError(err: unknown): boolean {
   return err instanceof CliFailureEventRecordedError;
+}
+
+function resolveStartupNotifierConfigPath(configPath: string): string {
+  if (isCanonicalGlobalConfigPath(configPath)) return configPath;
+
+  try {
+    const parsed = yamlParse(readFileSync(configPath, "utf-8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && !("projects" in parsed)) {
+      const globalPath = getGlobalConfigPath();
+      if (existsSync(globalPath)) return globalPath;
+    }
+  } catch {
+    // Fall through to the loaded config path. Notifier onboarding is best-effort.
+  }
+
+  return configPath;
+}
+
+async function ensureDefaultStartupNotifiers(
+  config: OrchestratorConfig,
+): Promise<OrchestratorConfig> {
+  if (!config.configPath || !existsSync(config.configPath)) return config;
+
+  const targetConfigPath = resolveStartupNotifierConfigPath(config.configPath);
+  const dashboardUrl = `http://localhost:${config.port ?? DEFAULT_PORT}`;
+  let desktopMode: "enable" | "disable-default" = "enable";
+
+  if (isMac()) {
+    try {
+      await installAoNotifierAppForStartup();
+    } catch (error) {
+      desktopMode = "disable-default";
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(
+        chalk.yellow(
+          "⚠ Could not set up AO Notifier.app; continuing with dashboard notifications only.",
+        ),
+      );
+      console.log(chalk.dim(`  ${message}`));
+    }
+  }
+
+  const changed = ensureStartupNotifierDefaults({
+    configPath: targetConfigPath,
+    dashboardUrl,
+    desktopMode,
+  });
+  return changed ? loadConfig(config.configPath) : config;
 }
 
 function readProjectBehaviorConfig(projectPath: string): LocalProjectConfig {
@@ -569,6 +622,7 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
   if (port !== null && port !== DEFAULT_PORT) {
     console.log(chalk.yellow(`  ⚠ Port ${DEFAULT_PORT} is busy — using ${port} instead.`));
   }
+  const notifierConfig = createStartupNotifierConfig(port ?? DEFAULT_PORT);
 
   const config: Record<string, unknown> = {
     port: port ?? DEFAULT_PORT,
@@ -578,6 +632,8 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
       workspace: "worktree",
       notifiers: [],
     },
+    notifiers: notifierConfig.notifiers,
+    notificationRouting: notifierConfig.notificationRouting,
     projects: {
       [projectId]: {
         name: projectId,
@@ -885,6 +941,8 @@ async function runStartup(
   // feature ships. No-op on subsequent runs (idempotent — guarded by the
   // presence of `updateChannel` in the global config).
   await maybePromptForUpdateChannel();
+  config = await ensureDefaultStartupNotifiers(config);
+  project = config.projects[projectId] ?? project;
 
   // Install the parent shutdown path before spawning any managed children.
   // This guarantees a SIGINT/SIGTERM in the middle of startup still performs
