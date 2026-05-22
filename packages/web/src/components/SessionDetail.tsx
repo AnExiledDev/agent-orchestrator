@@ -15,6 +15,7 @@ import { useSidebarContext } from "./workspace/SidebarContext";
 import { projectDashboardPath, projectSessionPath } from "@/lib/routes";
 
 import { MobileBottomNav } from "./MobileBottomNav";
+import { PlanPanel } from "./PlanPanel";
 import { SessionDetailHeader, type OrchestratorZones } from "./SessionDetailHeader";
 import { SessionEndedSummary } from "./SessionEndedSummary";
 import { sessionActivityMeta } from "./session-detail-utils";
@@ -65,6 +66,7 @@ export function SessionDetail({
 
   const terminalVariant = isOrchestrator ? "orchestrator" : "agent";
 
+  const isPlanningSession = session.metadata["mode"] === "planning";
   const isOpenCodeSession = session.metadata["agent"] === "opencode";
   const opencodeSessionId =
     typeof session.metadata["opencodeSessionId"] === "string" &&
@@ -139,6 +141,7 @@ export function SessionDetail({
         onKill={handleKill}
       />
       <main className="session-detail-page flex-1 min-h-0 flex flex-col bg-[var(--color-bg-base)]">
+        {isPlanningSession ? <PlanPanel session={session} /> : null}
         <div className="flex-1 min-h-0 flex flex-col">
           {!showTerminal ? (
             <div className="session-detail-terminal-placeholder h-full" />

@@ -1365,6 +1365,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         issueId: spawnConfig.issueId,
         issueContext,
         userPrompt: spawnConfig.prompt,
+        mode: spawnConfig.mode,
         ...(orchestratorExists && { orchestratorSessionId }),
       });
 
@@ -1493,6 +1494,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           ...(reusedOpenCodeSessionId ? { opencodeSessionId: reusedOpenCodeSessionId } : {}),
           ...(spawnConfig.prompt ? { userPrompt: spawnConfig.prompt } : {}),
           ...(displayName ? { displayName } : {}),
+          ...(spawnConfig.mode ? { mode: spawnConfig.mode } : {}),
         },
       };
 
@@ -1520,6 +1522,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         opencodeSessionId: reusedOpenCodeSessionId,
         userPrompt: spawnConfig.prompt,
         displayName,
+        mode: spawnConfig.mode,
       });
 
       if (plugins.agent.postLaunchSetup) {

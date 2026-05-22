@@ -17,6 +17,7 @@ import {
 import {
   projectDashboardSessionPath,
   projectDashboardPath,
+  projectPlanningPath,
   projectReviewPath,
   projectSessionHashPath,
   projectSessionPath,
@@ -235,6 +236,7 @@ function ReviewDashboardInner({
     : workerOptions;
   const codingHref = projectId ? projectDashboardPath(projectId) : "/?project=all";
   const reviewHref = projectReviewPath(projectId);
+  const planningHref = projectPlanningPath(projectId);
   const headerProjectLabel = projectName ?? (allProjectsView ? "All projects" : "Reviews");
 
   const handleToggleSidebar = () => {
@@ -557,6 +559,9 @@ function ReviewDashboardInner({
               aria-current="page"
             >
               Reviews
+            </Link>
+            <Link href={planningHref} className="workspace-mode-switch__item">
+              Planning
             </Link>
           </nav>
           <div className="dashboard-app-header__spacer" />

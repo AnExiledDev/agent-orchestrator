@@ -17,6 +17,7 @@ import { getPluginRegistry, getSessionManager } from "../lib/create-session-mana
 import { findProjectForDirectory } from "../lib/project-resolution.js";
 import { getRunning } from "../lib/running-state.js";
 import { projectSessionUrl } from "../lib/routes.js";
+import { resolvePreset } from "../presets/index.js";
 
 /**
  * Auto-detect the project ID from the config.
@@ -204,6 +205,8 @@ async function spawnSession(
   agent?: string,
   claimOptions?: SpawnClaimOptions,
   prompt?: string,
+  trustedPrompt?: boolean,
+  mode?: "coding" | "planning",
 ): Promise<void> {
   const spinner = ora("Creating session").start();
 
@@ -211,10 +214,16 @@ async function spawnSession(
     const sm = await getSessionManager(config);
     spinner.text = "Spawning session via core";
 
-    // Validate and sanitize prompt (strip newlines to prevent metadata injection)
-    const sanitizedPrompt = prompt?.replace(/[\r\n]/g, " ").trim() || undefined;
-    if (sanitizedPrompt && sanitizedPrompt.length > 4096) {
-      throw new Error("Prompt must be at most 4096 characters");
+    // Preset prompts are trusted multi-line markdown — skip sanitization and length check.
+    // User-provided prompts get newlines stripped (prevent metadata injection) and length-capped.
+    let finalPrompt: string | undefined;
+    if (trustedPrompt) {
+      finalPrompt = prompt;
+    } else {
+      finalPrompt = prompt?.replace(/[\r\n]/g, " ").trim() || undefined;
+      if (finalPrompt && finalPrompt.length > 4096) {
+        throw new Error("Prompt must be at most 4096 characters");
+      }
     }
 
     recordActivityEvent({
@@ -226,7 +235,7 @@ async function spawnSession(
       data: {
         issueId: issueId ?? null,
         agent: agent ?? null,
-        hasPrompt: !!sanitizedPrompt,
+        hasPrompt: !!finalPrompt,
         claimPr: claimOptions?.claimPr ?? null,
       },
     });
@@ -235,7 +244,8 @@ async function spawnSession(
       projectId,
       issueId,
       agent,
-      prompt: sanitizedPrompt,
+      prompt: finalPrompt,
+      mode,
     });
 
     let claimedPrUrl: string | null = null;
@@ -304,10 +314,9 @@ export function registerSpawn(program: Command): void {
     .option("--agent <name>", "Override the agent plugin (e.g. codex, claude-code)")
     .option("--claim-pr <pr>", "Immediately claim an existing PR for the spawned session")
     .option("--assign-on-github", "Assign the claimed PR to the authenticated GitHub user")
-    .option(
-      "--prompt <text>",
-      "Initial prompt/instructions for the agent (use instead of an issue)",
-    )
+    .option("--prompt <text>", "Initial prompt/instructions for the agent (use instead of an issue)")
+    .option("--preset <name>", "Use a predefined preset (e.g. backlog, planning)")
+    .option("--mode <mode>", "Session mode: coding (default) or planning")
     .action(
       async (
         issue: string | undefined,
@@ -317,6 +326,8 @@ export function registerSpawn(program: Command): void {
           claimPr?: string;
           assignOnGithub?: boolean;
           prompt?: string;
+          preset?: string;
+          mode?: string;
         },
         command: Command,
       ) => {
@@ -346,6 +357,53 @@ export function registerSpawn(program: Command): void {
           process.exit(1);
         }
 
+        // Resolve preset prompt (mutually exclusive with --prompt; issue arg policy is per-preset)
+        let finalPrompt = opts.prompt;
+        let trustedPrompt = false;
+        if (opts.preset) {
+          if (opts.prompt) {
+            console.error(chalk.red("Cannot use --preset and --prompt together."));
+            process.exit(1);
+          }
+          try {
+            const preset = resolvePreset(opts.preset);
+            const policy = preset.issueArg ?? "forbidden";
+            if (policy === "forbidden" && issue) {
+              console.error(
+                chalk.red(
+                  `Preset "${preset.name}" does not accept an issue argument.`,
+                ),
+              );
+              process.exit(1);
+            }
+            if (policy === "required" && !issue) {
+              console.error(
+                chalk.red(
+                  `Preset "${preset.name}" requires an issue argument. Usage: ao spawn <issue> --preset ${preset.name}`,
+                ),
+              );
+              process.exit(1);
+            }
+            finalPrompt = preset.prompt;
+            trustedPrompt = true;
+          } catch (err) {
+            console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+            process.exit(1);
+          }
+        }
+
+        // Validate --mode
+        const validModes = ["coding", "planning"] as const;
+        type ValidMode = (typeof validModes)[number];
+        let mode: ValidMode | undefined;
+        if (opts.mode) {
+          if (!validModes.includes(opts.mode as ValidMode)) {
+            console.error(chalk.red(`Invalid mode "${opts.mode}". Must be one of: ${validModes.join(", ")}`));
+            process.exit(1);
+          }
+          mode = opts.mode as ValidMode;
+        }
+
         const claimOptions: SpawnClaimOptions = {
           claimPr: opts.claimPr,
           assignOnGithub: opts.assignOnGithub,
@@ -373,15 +431,7 @@ export function registerSpawn(program: Command): void {
         }
 
         try {
-          await spawnSession(
-            config,
-            projectId,
-            issueId,
-            opts.open,
-            opts.agent,
-            claimOptions,
-            opts.prompt,
-          );
+          await spawnSession(config, projectId, issueId, opts.open, opts.agent, claimOptions, finalPrompt, trustedPrompt, mode);
         } catch (err) {
           console.error(chalk.red(`✗ ${err instanceof Error ? err.message : String(err)}`));
           process.exit(1);

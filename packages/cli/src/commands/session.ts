@@ -1,14 +1,18 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { connect as netConnect } from "node:net";
 import chalk from "chalk";
 import type { Command } from "commander";
 import {
   generateConfigHash,
+  getProjectSessionsDir,
   isOrchestratorSession,
   isTerminalSession,
   isWindows,
   loadConfig,
   SessionNotRestorableError,
+  updateMetadata,
   WorkspaceMissingError,
 } from "@aoagents/ao-core";
 import { DEFAULT_PORT } from "../lib/constants.js";
@@ -551,5 +555,77 @@ export function registerSession(program: Command): void {
         console.error(chalk.red(`Failed to remap session ${sessionName}: ${err}`));
         process.exit(1);
       }
+    });
+
+  session
+    .command("promote")
+    .description("Promote a planning session to a coding session seeded with its plan")
+    .argument("<session>", "Planning session to promote")
+    .option("--agent <name>", "Override the agent plugin for the coding session")
+    .action(async (sessionName: string, opts: { agent?: string }) => {
+      const config = loadConfig();
+      const sm = await getSessionManager(config);
+
+      const planningSession = await sm.get(sessionName);
+      if (!planningSession) {
+        console.error(chalk.red(`Session "${sessionName}" not found.`));
+        process.exit(1);
+      }
+
+      if (planningSession.metadata["mode"] !== "planning") {
+        console.error(chalk.red(`Session "${sessionName}" is not a planning session.`));
+        process.exit(1);
+      }
+
+      if (planningSession.metadata["promotedTo"]) {
+        console.error(
+          chalk.red(
+            `Session "${sessionName}" was already promoted to ${planningSession.metadata["promotedTo"]}.`,
+          ),
+        );
+        process.exit(1);
+      }
+
+      const workspacePath = planningSession.workspacePath;
+      if (!workspacePath) {
+        console.error(chalk.red(`No workspace path for session "${sessionName}".`));
+        process.exit(1);
+      }
+
+      let planContent: string;
+      try {
+        planContent = readFileSync(join(workspacePath, ".ao", "plan.md"), "utf-8");
+      } catch {
+        console.error(
+          chalk.red(`No plan found at ${join(workspacePath, ".ao", "plan.md")}. Has the agent finished planning?`),
+        );
+        process.exit(1);
+      }
+
+      const prompt = [
+        "# Implementation Plan",
+        "",
+        "The following plan was produced by a planning session. Implement it.",
+        "",
+        planContent,
+      ].join("\n");
+
+      const codingSession = await sm.spawn({
+        projectId: planningSession.projectId,
+        issueId: planningSession.issueId ?? undefined,
+        prompt,
+        agent: opts.agent,
+        mode: "coding",
+      });
+
+      const sessionsDir = getProjectSessionsDir(planningSession.projectId);
+      updateMetadata(sessionsDir, sessionName, { promotedTo: codingSession.id });
+      updateMetadata(sessionsDir, codingSession.id, { promotedFrom: sessionName });
+
+      const port = config.port ?? DEFAULT_PORT;
+      console.log(
+        chalk.green(`\nPromoted ${sessionName} → ${chalk.bold(codingSession.id)}`),
+      );
+      console.log(chalk.dim(`  View: ${projectSessionUrl(port, codingSession.projectId, codingSession.id)}`));
     });
 }

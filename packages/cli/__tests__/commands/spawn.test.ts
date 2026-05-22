@@ -864,6 +864,150 @@ describe("spawn pre-flight checks", () => {
   });
 });
 
+describe("spawn --preset", () => {
+  it("resolves a preset and passes its prompt to sessionManager.spawn()", async () => {
+    const fakeSession: Session = {
+      id: "app-1",
+      projectId: "my-app",
+      status: "spawning",
+      activity: null,
+      branch: null,
+      issueId: null,
+      pr: null,
+      workspacePath: "/tmp/wt",
+      runtimeHandle: { id: "hash-app-1", runtimeName: "tmux", data: {} },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+
+    mockSessionManager.spawn.mockResolvedValue(fakeSession);
+
+    await program.parseAsync(["node", "test", "spawn", "--preset", "backlog"]);
+
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(1);
+    const spawnArg = mockSessionManager.spawn.mock.calls[0][0];
+    expect(spawnArg.projectId).toBe("my-app");
+    expect(spawnArg.prompt).toBeDefined();
+    expect(spawnArg.prompt).toContain("Backlog Analyst");
+    expect(spawnArg.prompt).toContain("ao status");
+  });
+
+  it("preserves newlines in preset prompts (no sanitization)", async () => {
+    const fakeSession: Session = {
+      id: "app-1",
+      projectId: "my-app",
+      status: "spawning",
+      activity: null,
+      branch: null,
+      issueId: null,
+      pr: null,
+      workspacePath: "/tmp/wt",
+      runtimeHandle: { id: "hash-app-1", runtimeName: "tmux", data: {} },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+
+    mockSessionManager.spawn.mockResolvedValue(fakeSession);
+
+    await program.parseAsync(["node", "test", "spawn", "--preset", "backlog"]);
+
+    const spawnArg = mockSessionManager.spawn.mock.calls[0][0];
+    // Preset prompts are multi-line markdown — newlines must be preserved
+    expect(spawnArg.prompt).toContain("\n");
+  });
+
+  it("rejects --preset and --prompt used together", async () => {
+    await expect(
+      program.parseAsync([
+        "node",
+        "test",
+        "spawn",
+        "--preset",
+        "backlog",
+        "--prompt",
+        "do stuff",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi
+      .mocked(console.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join("\n");
+    expect(errors).toContain("Cannot use --preset and --prompt together");
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown preset names with available list", async () => {
+    await expect(
+      program.parseAsync(["node", "test", "spawn", "--preset", "nonexistent"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi
+      .mocked(console.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join("\n");
+    expect(errors).toContain("Unknown preset");
+    expect(errors).toContain("backlog");
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects an issue argument when the preset's issueArg policy is forbidden (backlog)", async () => {
+    await expect(
+      program.parseAsync(["node", "test", "spawn", "42", "--preset", "backlog"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi
+      .mocked(console.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join("\n");
+    expect(errors).toContain('Preset "backlog" does not accept an issue argument');
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("requires an issue argument when the preset's issueArg policy is required (triage)", async () => {
+    await expect(
+      program.parseAsync(["node", "test", "spawn", "--preset", "triage"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi
+      .mocked(console.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join("\n");
+    expect(errors).toContain('Preset "triage" requires an issue argument');
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("accepts --preset triage with an issue argument", async () => {
+    const fakeSession: Session = {
+      id: "app-1",
+      projectId: "my-app",
+      status: "spawning",
+      activity: null,
+      branch: "feat/42",
+      issueId: "42",
+      pr: null,
+      workspacePath: "/tmp/wt",
+      runtimeHandle: { id: "hash-app-1", runtimeName: "tmux", data: {} },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+    mockSessionManager.spawn.mockResolvedValue(fakeSession);
+
+    await program.parseAsync(["node", "test", "spawn", "42", "--preset", "triage"]);
+
+    const spawnArg = mockSessionManager.spawn.mock.calls[0][0];
+    expect(spawnArg.projectId).toBe("my-app");
+    expect(spawnArg.issueId).toBe("42");
+    expect(spawnArg.prompt).toContain("Triage Analyst");
+  });
+});
+
 describe("batch-spawn command", () => {
   function setupBatch(): Command {
     const cmd = new Command();
