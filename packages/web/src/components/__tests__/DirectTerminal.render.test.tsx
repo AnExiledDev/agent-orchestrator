@@ -108,6 +108,10 @@ vi.mock("@/hooks/useMux", () => ({
   }),
 }));
 
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showToast: vi.fn() }),
+}));
+
 describe("DirectTerminal render", () => {
   beforeEach(() => {
     searchParams = new URLSearchParams();

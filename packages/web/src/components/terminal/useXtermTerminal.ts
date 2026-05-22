@@ -13,8 +13,10 @@ import type { FitAddon as FitAddonType } from "@xterm/addon-fit";
 
 import { useMux } from "@/hooks/useMux";
 import { attachTouchScroll } from "@/lib/terminal-touch-scroll";
+import { useToast } from "@/components/Toast";
 
 import { registerClipboardHandlers } from "./terminal-clipboard";
+import { uploadImageAndInject } from "./terminal-image-paste";
 import { FONT_SIZE_KEY, resolveMonoFontFamily } from "./terminal-font";
 import { buildTerminalThemes, type TerminalVariant } from "./terminal-themes";
 
@@ -60,6 +62,8 @@ export function useXtermTerminal(
     closeTerminal,
     status: muxStatus,
   } = useMux();
+
+  const { showToast } = useToast();
 
   const terminalInstance = useRef<TerminalType | null>(null);
   const fitAddon = useRef<FitAddonType | null>(null);
@@ -329,6 +333,41 @@ export function useXtermTerminal(
           writeTerminal(sessionId, data, projectId);
         });
 
+        // ── Image paste / drop ─────────────────────────────────────────
+        const container = terminalRef.current;
+        const handlePaste = (e: ClipboardEvent) => {
+          const items = e.clipboardData?.items;
+          if (!items) return;
+          for (let i = 0; i < items.length; i++) {
+            if (items[i].type.startsWith("image/")) {
+              e.preventDefault();
+              const file = items[i].getAsFile();
+              if (file) {
+                uploadImageAndInject(file, sessionId, projectId, writeTerminal, showToast);
+              }
+              return;
+            }
+          }
+          // No image found — let xterm handle text paste normally
+        };
+        const handleDragOver = (e: DragEvent) => {
+          e.preventDefault();
+        };
+        const handleDrop = (e: DragEvent) => {
+          const files = e.dataTransfer?.files;
+          if (!files || files.length === 0) return;
+          for (let i = 0; i < files.length; i++) {
+            if (files[i].type.startsWith("image/")) {
+              e.preventDefault();
+              uploadImageAndInject(files[i], sessionId, projectId, writeTerminal, showToast);
+              return;
+            }
+          }
+        };
+        container?.addEventListener("paste", handlePaste);
+        container?.addEventListener("dragover", handleDragOver);
+        container?.addEventListener("drop", handleDrop);
+
         resizeTerminalMux(sessionId, terminal.cols, terminal.rows, projectId);
 
         cleanup = () => {
@@ -339,6 +378,9 @@ export function useXtermTerminal(
           selectionDisposable.dispose();
           if (safetyTimer) clearTimeout(safetyTimer);
           window.removeEventListener("resize", handleResize);
+          container?.removeEventListener("paste", handlePaste);
+          container?.removeEventListener("dragover", handleDragOver);
+          container?.removeEventListener("drop", handleDrop);
           if (fontsListenerAttached && fontsFace) {
             fontsFace.removeEventListener("loadingdone", handleFontsLoadingDone);
           }
@@ -376,6 +418,7 @@ export function useXtermTerminal(
     resizeTerminalMux,
     openTerminal,
     closeTerminal,
+    showToast,
   ]);
 
   // Re-send terminal dimensions on every reconnect so the server-side PTY
