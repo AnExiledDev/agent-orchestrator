@@ -322,3 +322,47 @@ describe("BASE_AGENT_PROMPT", () => {
     expect(BASE_AGENT_PROMPT).toContain("ao session claim-pr");
   });
 });
+
+describe("planning mode", () => {
+  it("includes planning instructions when mode is planning", () => {
+    const { systemPrompt } = buildPrompt({
+      project,
+      projectId: "test-app",
+      mode: "planning",
+    });
+    expect(systemPrompt).toContain("## Planning Mode");
+    expect(systemPrompt).toContain(".ao/plan.md");
+    expect(systemPrompt).toContain("ao report research_complete");
+    expect(systemPrompt).toContain("Do NOT create branches, commits, or pull requests");
+  });
+
+  it("omits planning instructions when mode is coding", () => {
+    const { systemPrompt } = buildPrompt({
+      project,
+      projectId: "test-app",
+      mode: "coding",
+    });
+    expect(systemPrompt).not.toContain("## Planning Mode");
+  });
+
+  it("omits planning instructions when mode is undefined", () => {
+    const { systemPrompt } = buildPrompt({
+      project,
+      projectId: "test-app",
+    });
+    expect(systemPrompt).not.toContain("## Planning Mode");
+  });
+
+  it("includes both planning instructions and issue context together", () => {
+    const { systemPrompt } = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "42",
+      issueContext: "Fix the login bug",
+      mode: "planning",
+    });
+    expect(systemPrompt).toContain("## Planning Mode");
+    expect(systemPrompt).toContain("## Task");
+    expect(systemPrompt).toContain("Work on issue #42");
+  });
+});

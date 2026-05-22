@@ -206,6 +206,7 @@ async function spawnSession(
   claimOptions?: SpawnClaimOptions,
   prompt?: string,
   trustedPrompt?: boolean,
+  mode?: "coding" | "planning",
 ): Promise<void> {
   const spinner = ora("Creating session").start();
 
@@ -244,6 +245,7 @@ async function spawnSession(
       issueId,
       agent,
       prompt: finalPrompt,
+      mode,
     });
 
     let claimedPrUrl: string | null = null;
@@ -313,7 +315,8 @@ export function registerSpawn(program: Command): void {
     .option("--claim-pr <pr>", "Immediately claim an existing PR for the spawned session")
     .option("--assign-on-github", "Assign the claimed PR to the authenticated GitHub user")
     .option("--prompt <text>", "Initial prompt/instructions for the agent (use instead of an issue)")
-    .option("--preset <name>", "Use a predefined preset (e.g. backlog)")
+    .option("--preset <name>", "Use a predefined preset (e.g. backlog, planning)")
+    .option("--mode <mode>", "Session mode: coding (default) or planning")
     .action(
       async (
         issue: string | undefined,
@@ -324,6 +327,7 @@ export function registerSpawn(program: Command): void {
           assignOnGithub?: boolean;
           prompt?: string;
           preset?: string;
+          mode?: string;
         },
         command: Command,
       ) => {
@@ -388,6 +392,18 @@ export function registerSpawn(program: Command): void {
           }
         }
 
+        // Validate --mode
+        const validModes = ["coding", "planning"] as const;
+        type ValidMode = (typeof validModes)[number];
+        let mode: ValidMode | undefined;
+        if (opts.mode) {
+          if (!validModes.includes(opts.mode as ValidMode)) {
+            console.error(chalk.red(`Invalid mode "${opts.mode}". Must be one of: ${validModes.join(", ")}`));
+            process.exit(1);
+          }
+          mode = opts.mode as ValidMode;
+        }
+
         const claimOptions: SpawnClaimOptions = {
           claimPr: opts.claimPr,
           assignOnGithub: opts.assignOnGithub,
@@ -415,7 +431,7 @@ export function registerSpawn(program: Command): void {
         }
 
         try {
-          await spawnSession(config, projectId, issueId, opts.open, opts.agent, claimOptions, finalPrompt, trustedPrompt);
+          await spawnSession(config, projectId, issueId, opts.open, opts.agent, claimOptions, finalPrompt, trustedPrompt, mode);
         } catch (err) {
           console.error(chalk.red(`✗ ${err instanceof Error ? err.message : String(err)}`));
           process.exit(1);

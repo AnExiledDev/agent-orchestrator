@@ -12,7 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { ProjectConfig, SessionId } from "./types.js";
+import type { ProjectConfig, SessionId, SessionMode } from "./types.js";
 
 // =============================================================================
 // LAYER 1: BASE AGENT PROMPT
@@ -102,6 +102,9 @@ export interface PromptBuildConfig {
    * orchestrator session actually exists for the project.
    */
   orchestratorSessionId?: SessionId;
+
+  /** Session mode — when 'planning', appends research/plan instructions */
+  mode?: SessionMode;
 }
 
 // =============================================================================
@@ -218,6 +221,31 @@ export function buildPrompt(
   // Layer 2: Worker sessions are scoped to a single issue, so issue/task
   // context belongs in the system prompt with the rest of the session context.
   systemSections.push(buildConfigLayer(config));
+
+  // Layer 2b: Planning mode instructions — override PR/CI workflow with
+  // research-only behavior when the session is in planning mode.
+  if (config.mode === "planning") {
+    systemSections.push(
+      [
+        "## Planning Mode",
+        "This is a **planning session**. Your job is to research, explore, and produce an implementation plan — NOT to write production code or create PRs.",
+        "",
+        "### Workflow",
+        "1. Research the codebase thoroughly — read files, trace dependencies, understand constraints.",
+        "2. Write your implementation plan to `.ao/plan.md` in the workspace root.",
+        "3. When finished, run `ao report research_complete --note \"<one-line summary of the plan>\"`.",
+        "",
+        "### Plan format (.ao/plan.md)",
+        "Use structured markdown: problem statement, proposed approach, affected files, risks/trade-offs, and step-by-step implementation tasks.",
+        "",
+        "### Rules",
+        "- Do NOT create branches, commits, or pull requests.",
+        "- Do NOT modify source code files.",
+        "- Only write to `.ao/plan.md` (and optionally `.ao/research.md` for raw notes).",
+        "- Report `research_complete` when the plan is ready for human review.",
+      ].join("\n"),
+    );
+  }
 
   // Layer 3: User rules
   if (userRules) {

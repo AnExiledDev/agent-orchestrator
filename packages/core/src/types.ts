@@ -363,6 +363,9 @@ export function isOrchestratorSession(
   return true;
 }
 
+/** Session mode determines the agent's workflow and dashboard routing. */
+export type SessionMode = "coding" | "planning";
+
 /** Config for creating a new session */
 export interface SessionSpawnConfig {
   projectId: string;
@@ -373,6 +376,8 @@ export interface SessionSpawnConfig {
   agent?: string;
   /** Override the OpenCode subagent for this session (e.g. "sisyphus", "oracle") */
   subagent?: string;
+  /** Session mode: 'coding' (default) or 'planning' (research/plan workflow) */
+  mode?: SessionMode;
 }
 
 /** Config for creating an orchestrator session */
@@ -1838,6 +1843,7 @@ export interface SessionMetadata {
    * touched.
    */
   displayNameUserSet?: boolean;
+  mode?: string;
 }
 
 // =============================================================================

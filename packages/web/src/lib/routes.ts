@@ -10,6 +10,10 @@ export function projectReviewPath(projectId: string | undefined): string {
   return projectId ? `/review?project=${encodeURIComponent(projectId)}` : "/review?project=all";
 }
 
+export function projectPlanningPath(projectId: string | undefined): string {
+  return projectId ? `/planning?project=${encodeURIComponent(projectId)}` : "/planning?project=all";
+}
+
 export function projectSessionPath(projectId: string, sessionId: string): string {
   return `${projectDashboardPath(projectId)}/sessions/${encodeURIComponent(sessionId)}`;
 }
