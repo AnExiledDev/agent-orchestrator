@@ -12,6 +12,7 @@ import type { Terminal as TerminalType } from "@xterm/xterm";
 import type { FitAddon as FitAddonType } from "@xterm/addon-fit";
 
 import { useMux } from "@/hooks/useMux";
+import { useToast } from "@/components/Toast";
 import { attachTouchScroll } from "@/lib/terminal-touch-scroll";
 
 import { registerClipboardHandlers } from "./terminal-clipboard";
@@ -60,6 +61,8 @@ export function useXtermTerminal(
     closeTerminal,
     status: muxStatus,
   } = useMux();
+
+  const { showToast } = useToast();
 
   const terminalInstance = useRef<TerminalType | null>(null);
   const fitAddon = useRef<FitAddonType | null>(null);
@@ -413,6 +416,71 @@ export function useXtermTerminal(
     fit.fit();
     resizeTerminalMux(sessionId, terminal.cols, terminal.rows, projectId);
   }, [fontSize, sessionId, projectId, resizeTerminalMux]);
+
+  // Image paste/drop — intercept on the container element so we check for
+  // image data before xterm's built-in text paste handler runs.
+  useEffect(() => {
+    const container = terminalRef.current;
+    if (!container) return;
+
+    const uploadImage = async (file: File) => {
+      showToast("Uploading image...", "info");
+      const formData = new FormData();
+      formData.append("image", file);
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/image`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          showToast(data.error ?? "Image upload failed", "error");
+          return;
+        }
+        const data = (await res.json()) as { path: string };
+        writeTerminal(sessionId, `[See Image: ${data.path}]`, projectId);
+        showToast("Image attached", "success");
+      } catch {
+        showToast("Image upload failed", "error");
+      }
+    };
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          e.preventDefault();
+          e.stopPropagation();
+          void uploadImage(file);
+          return;
+        }
+      }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer?.files[0];
+      if (!file || !file.type.startsWith("image/")) return;
+      void uploadImage(file);
+    };
+
+    container.addEventListener("paste", handlePaste);
+    container.addEventListener("dragover", handleDragOver);
+    container.addEventListener("drop", handleDrop);
+
+    return () => {
+      container.removeEventListener("paste", handlePaste);
+      container.removeEventListener("dragover", handleDragOver);
+      container.removeEventListener("drop", handleDrop);
+    };
+  }, [sessionId, projectId, writeTerminal, showToast]);
 
   const scrollToLatest = () => {
     const t = terminalInstance.current;

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectTerminal } from "../DirectTerminal";
+import { ToastProvider } from "../Toast";
 
 const replaceMock = vi.fn();
 let searchParams = new URLSearchParams();
@@ -144,11 +145,13 @@ describe("DirectTerminal render", () => {
 
   it("renders the shared accent chrome for orchestrator terminals", async () => {
     render(
-      <DirectTerminal
-        sessionId="ao-orchestrator"
-        tmuxName="ao-orchestrator"
-        variant="orchestrator"
-      />,
+      <ToastProvider>
+        <DirectTerminal
+          sessionId="ao-orchestrator"
+          tmuxName="ao-orchestrator"
+          variant="orchestrator"
+        />
+      </ToastProvider>,
     );
 
     await waitFor(() => expect(screen.getByText("Connected")).toBeInTheDocument());
@@ -159,12 +162,14 @@ describe("DirectTerminal render", () => {
 
   it("keeps restart and fullscreen actions available in chromeless mode", async () => {
     render(
-      <DirectTerminal
-        sessionId="ao-opencode"
-        tmuxName="ao-opencode"
-        chromeless
-        isOpenCodeSession
-      />,
+      <ToastProvider>
+        <DirectTerminal
+          sessionId="ao-opencode"
+          tmuxName="ao-opencode"
+          chromeless
+          isOpenCodeSession
+        />
+      </ToastProvider>,
     );
 
     await waitFor(() =>
@@ -177,11 +182,13 @@ describe("DirectTerminal render", () => {
 
   it("switches the terminal shell between inline and fullscreen positioning", async () => {
     const { container } = render(
-      <DirectTerminal
-        sessionId="ao-orchestrator"
-        tmuxName="ao-orchestrator"
-        variant="orchestrator"
-      />,
+      <ToastProvider>
+        <DirectTerminal
+          sessionId="ao-orchestrator"
+          tmuxName="ao-orchestrator"
+          variant="orchestrator"
+        />
+      </ToastProvider>,
     );
 
     await waitFor(() =>
@@ -207,7 +214,11 @@ describe("DirectTerminal render", () => {
   });
 
   it("passes projectId to fullscreen resize hook for scoped mux resize", () => {
-    render(<DirectTerminal sessionId="app-1" projectId="project-a" tmuxName="project-a-app-1" />);
+    render(
+      <ToastProvider>
+        <DirectTerminal sessionId="app-1" projectId="project-a" tmuxName="project-a-app-1" />
+      </ToastProvider>,
+    );
 
     expect(useFullscreenResizeMock).toHaveBeenCalledWith(
       false,
